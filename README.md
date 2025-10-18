@@ -1,0 +1,1 @@
+# OpenRGB_Hue-Disco_Plugin
