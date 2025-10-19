@@ -90,14 +90,20 @@ bool DTLSClient::connect() {
     }
 
     spdlog::info("DTLS handshake successful.");
+    connected_ = true;
     return true;
 }
 
 void DTLSClient::disconnect() {
     mbedtls_ssl_close_notify(&ssl_);
+    connected_ = false;
 }
 
-bool DTLSClient::sendFrame(const std::vector<HueColor>& lampColors, uint32_t sequenceNumber) {
+bool DTLSClient::isConnected() const {
+    return connected_;
+}
+
+bool DTLSClient::sendFrame(const std::vector<DTLSHueColor>& lampColors, uint32_t sequenceNumber) {
     std::vector<unsigned char> payload;
     payload.reserve(16 + 16 + (lampColors.size() * 7));
 

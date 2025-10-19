@@ -64,8 +64,7 @@ void PluginHueEntertainment::init() {
 
 
     dtls_client_ = std::make_shared<DTLSClient>(config_manager_->get_bridge_ip(), config_manager_->get_username(), config_manager_->get_clientkey(), config_manager_->get_area_id(), config_manager_->get_mappings());
-    mapping_engine_ = std::make_shared<MappingEngine>();
-    mapping_engine_->loadMapping(config_manager_->get_mappings());
+    mapping_engine_ = std::make_shared<MappingEngine>(area.lamp_uuids);
 
     hue_streamer_ = std::make_shared<HueStreamer>(config_manager_, dtls_client_, mapping_engine_);
     

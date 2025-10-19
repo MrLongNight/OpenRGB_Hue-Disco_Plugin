@@ -26,9 +26,8 @@ void HueStreamer::stop() {
 }
 
 void HueStreamer::updateColors(const std::vector<Color>& colors) {
-    // Lock-free: Atomically publish the newest frame. SetLEDs (producer) must be non-blocking.
-    auto frame_ptr = std::make_shared<std::vector<Color>>(colors);
-    latest_frame_.store(frame_ptr, std::memory_order_release);
+    std::lock_guard<std::mutex> lock(frame_mutex_);
+    latest_frame_ = std::make_shared<std::vector<Color>>(colors);
 }
 
 void HueStreamer::stream_thread_func() {
@@ -53,24 +52,30 @@ void HueStreamer::stream_thread_func() {
 
         auto loop_start = std::chrono::steady_clock::now();
 
-        // Fetch the latest frame (lock-free). If there is none, just sleep for cadence.
-        auto frame_ptr = latest_frame_.load(std::memory_order_acquire);
+        std::shared_ptr<std::vector<Color>> frame_to_process;
+        {
+            std::lock_guard<std::mutex> lock(frame_mutex_);
+            if (latest_frame_ != last_processed_frame) {
+                frame_to_process = latest_frame_;
+                last_processed_frame = latest_frame_;
+            }
+        }
 
-        if (frame_ptr && frame_ptr != last_processed_frame) {
+        if (frame_to_process) {
             // Map OpenRGB colors -> Hue colors (floats 0.0-1.0)
-            std::vector<HueColor> hue_colors;
-            mapping_engine_->mapOpenRGBtoHue(*frame_ptr, hue_colors);
+            std::vector<MappedHueColor> mapped_colors;
+            mapping_engine_->mapOpenRGBtoHue(*frame_to_process, mapped_colors);
 
-            // Send via DTLS; non-blocking wrt SetLEDs (DTLS handled in streamer thread)
-            if (!dtls_client_->sendFrame(hue_colors, ++sequence_number_)) {
-                spdlog::error("sendFrame failed, will disconnect and reconnect");
-                dtls_client_->disconnect();
-                // break to outer loop to reconnect
-                last_processed_frame = nullptr;
-                continue;
+            std::vector<DTLSHueColor> dtls_colors;
+            for(const auto& color : mapped_colors) {
+                dtls_colors.push_back({(uint8_t)(color.r * 255), (uint8_t)(color.g * 255), (uint8_t)(color.b * 255)});
             }
 
-            last_processed_frame = frame_ptr;
+            // Send via DTLS; non-blocking wrt SetLEDs (DTLS handled in streamer thread)
+            if (!dtls_client_->sendFrame(dtls_colors, ++sequence_number_)) {
+                spdlog::error("sendFrame failed, will disconnect and reconnect");
+                dtls_client_->disconnect();
+            }
         }
 
         auto loop_end = std::chrono::steady_clock::now();

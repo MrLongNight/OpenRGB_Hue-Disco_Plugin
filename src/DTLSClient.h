@@ -8,7 +8,7 @@
 #include <mbedtls/ctr_drbg.h>
 #include "ConfigManager.h"
 
-struct HueColor {
+struct DTLSHueColor {
     uint8_t r, g, b;
 };
 
@@ -19,9 +19,11 @@ public:
 
     bool connect();
     void disconnect();
-    bool sendFrame(const std::vector<HueColor>& lampColors, uint32_t sequenceNumber);
+    bool sendFrame(const std::vector<DTLSHueColor>& lampColors, uint32_t sequenceNumber);
+    bool isConnected() const;
 
 private:
+    bool connected_ = false;
     std::string bridge_ip_;
     std::string username_;
     std::string area_id_;

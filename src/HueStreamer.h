@@ -7,6 +7,7 @@
 #include <thread>
 #include <atomic>
 #include <memory>
+#include <mutex>
 
 class HueStreamer {
 public:
@@ -28,7 +29,8 @@ private:
     std::atomic<bool> running_{false};
 
     // Lock-free slot for latest frame
-    std::atomic<std::shared_ptr<std::vector<Color>>> latest_frame_{nullptr};
+    std::shared_ptr<std::vector<Color>> latest_frame_{nullptr};
+    std::mutex frame_mutex_;
 
     uint32_t sequence_number_ = 0;
 };
