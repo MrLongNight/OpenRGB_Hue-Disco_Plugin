@@ -5,9 +5,8 @@
 #include "ConfigManager.h"
 #include <vector>
 #include <thread>
-#include <mutex>
-#include <condition_variable>
 #include <atomic>
+#include <memory>
 
 class HueStreamer {
 public:
@@ -28,10 +27,8 @@ private:
     std::thread stream_thread_;
     std::atomic<bool> running_{false};
 
-    std::vector<Color> color_buffer_;
-    std::mutex buffer_mutex_;
-    std::condition_variable buffer_cv_;
-    std::atomic<bool> new_frame_ready_{false};
-    
+    // Lock-free slot for latest frame
+    std::atomic<std::shared_ptr<std::vector<Color>>> latest_frame_{nullptr};
+
     uint32_t sequence_number_ = 0;
 };
