@@ -1,0 +1,75 @@
+name: Build and Test (Windows & Ubuntu)
+
+on:
+  push:
+    branches: [ main, fix/openrgb-interface-entertainment ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        arch: [x64]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup build environment - Ubuntu
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake git pkg-config libmbedtls-dev libspdlog-dev nlohmann-json3-dev
+
+      - name: Setup build environment - Windows (vcpkg)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $vcpkgRoot = "$env:TEMP\vcpkg"
+          git clone https://github.com/microsoft/vcpkg.git $vcpkgRoot
+          & "$vcpkgRoot\bootstrap-vcpkg.bat"
+          & "$vcpkgRoot\vcpkg.exe" install mbedtls:x64-windows spdlog:x64-windows nlohmann-json:x64-windows catch2:x64-windows --triplet x64-windows
+
+      - name: Configure CMake
+        shell: bash
+        run: |
+          mkdir -p build
+          cd build
+          if [ "${{ matrix.os }}" == "ubuntu-latest" ]; then
+            cmake .. -DCMAKE_BUILD_TYPE=Release
+          else
+            cmake .. -A x64 -DCMAKE_TOOLCHAIN_FILE="$TEMP/vcpkg/scripts/buildsystems/vcpkg.cmake" -DCMAKE_BUILD_TYPE=Release
+          fi
+
+      - name: Build
+        run: |
+          cd build
+          cmake --build . --config Release -- -m
+
+      - name: Run tests
+        run: |
+          cd build
+          ctest --output-on-failure --timeout 300
+
+      # Optional: Automatisches Committen & Pushen von Änderungen im Workflow (z.B. Reports, generierte Files)
+      # - name: Commit & Push changes (if any)
+      #   if: github.ref == 'refs/heads/fix/openrgb-interface-entertainment'
+      #   env:
+      #     REPO: ${{ github.repository }}
+      #     TOKEN: ${{ secrets.ACTIONS_PUSH_TOKEN }}
+      #   run: |
+      #     git config user.name "github-actions[bot]"
+      #     git config user.email "actions@github.com"
+      #     git add -A
+      #     if git diff-index --quiet HEAD --; then
+      #       echo "No changes to commit."
+      #     else
+      #       git commit -m "Automated CI update"
+      #       git remote set-url origin https://x-access-token:${TOKEN}@github.com/${REPO}.git
+      #       git push origin HEAD:${GITHUB_REF##*/}
+      #     fi
