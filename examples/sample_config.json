@@ -1,0 +1,11 @@
+{
+  "bridge_ip": "192.168.1.100",
+  "username": "",            // filled after pushlink
+  "clientkey": "",           // filled after pushlink
+  "area_id": "",
+  "mappings": [
+    {"openrgb_indices": [0,1,2], "lamp_id": "uuid-1"},
+    {"openrgb_indices": [3,4,5], "lamp_id": "uuid-2"}
+  ],
+  "target_fps": 30
+}
