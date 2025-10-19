@@ -3,6 +3,11 @@
 #include <string>
 #include <vector>
 #include <nlohmann/json.hpp>
+
+// Enable SSL support for httplib
+#if !defined(CPPHTTPLIB_OPENSSL_SUPPORT)
+#define CPPHTTPLIB_OPENSSL_SUPPORT
+#endif
 #include <httplib.h>
 
 using json = nlohmann::json;
@@ -23,7 +28,9 @@ public:
     bool activateEntertainmentArea(const std::string& areaId);
     bool deactivateEntertainmentArea(const std::string& areaId);
 
+#include <memory>
+
 private:
     std::string bridge_ip_;
-    httplib::Client http_client_;
+    std::unique_ptr<httplib::Client> http_client_;
 };

@@ -16,8 +16,12 @@ target_include_directories(OpenRGB_HueEntertainment PUBLIC
 )
 
 target_link_libraries(OpenRGB_HueEntertainment PUBLIC
+    mbedcrypto
+    mbedx509
     mbedtls
     nlohmann_json::nlohmann_json
     spdlog::spdlog
     httplib
+    ssl
+    crypto
 )

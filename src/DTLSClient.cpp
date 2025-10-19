@@ -103,41 +103,27 @@ bool DTLSClient::isConnected() const {
     return connected_;
 }
 
-bool DTLSClient::sendFrame(const std::vector<DTLSHueColor>& lampColors, uint32_t sequenceNumber) {
-    std::vector<unsigned char> payload;
-    payload.reserve(16 + 16 + (lampColors.size() * 7));
+#include <chrono>
 
-    // Header
-    const char* protocolName = "HueStream";
-    payload.insert(payload.end(), protocolName, protocolName + 9);
-    payload.push_back(0x02); // Major version
-    payload.push_back(0x00); // Minor version
-    payload.push_back((sequenceNumber >> 24) & 0xFF);
-    payload.push_back((sequenceNumber >> 16) & 0xFF);
-    payload.push_back((sequenceNumber >> 8) & 0xFF);
-    payload.push_back(sequenceNumber & 0xFF);
-    payload.push_back(0x00); // Reserved
-    payload.push_back(0x00); // Reserved
-    payload.push_back(0x00); // Color space (RGB)
-    payload.push_back(0x00); // Reserved
+bool DTLSClient::sendFrame(const std::vector<DTLSHueColor>& lampColors, const std::vector<std::string>& lampIds, uint32_t sequenceNumber) {
+    nlohmann::json root;
+    root["sequence"] = sequenceNumber;
+    root["timestamp"] = (uint64_t)std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
 
-    // Entertainment Area ID
-    auto area_id_bytes = uuid_to_bytes(area_id_);
-    payload.insert(payload.end(), area_id_bytes.begin(), area_id_bytes.end());
-
-    // Light Channels
+    nlohmann::json frames = nlohmann::json::array();
     for (size_t i = 0; i < lampColors.size(); ++i) {
-        payload.push_back(i); // Channel ID
-        // Convert to 16-bit big endian
-        payload.push_back(lampColors[i].r);
-        payload.push_back(lampColors[i].r);
-        payload.push_back(lampColors[i].g);
-        payload.push_back(lampColors[i].g);
-        payload.push_back(lampColors[i].b);
-        payload.push_back(lampColors[i].b);
+        frames.push_back({
+            {"lampId", lampIds[i]},
+            {"r", std::round(lampColors[i].r / 255.0f * 1000.0f) / 1000.0f},
+            {"g", std::round(lampColors[i].g / 255.0f * 1000.0f) / 1000.0f},
+            {"b", std::round(lampColors[i].b / 255.0f * 1000.0f) / 1000.0f},
+        });
     }
+    root["frames"] = frames;
+    std::string payload = root.dump();
 
-    int ret = mbedtls_ssl_write(&ssl_, payload.data(), payload.size());
+    int ret = mbedtls_ssl_write(&ssl_, (const unsigned char*)payload.data(), payload.size());
     if (ret < 0) {
         spdlog::error("mbedtls_ssl_write returned {}", ret);
         return false;

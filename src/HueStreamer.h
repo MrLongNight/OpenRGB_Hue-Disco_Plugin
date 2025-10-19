@@ -8,15 +8,17 @@
 #include <atomic>
 #include <memory>
 #include <mutex>
+#include <condition_variable>
+#include "LatestFrame.h"
 
 class HueStreamer {
 public:
-    HueStreamer(std::shared_ptr<ConfigManager> config, std::shared_ptr<DTLSClient> dtls_client, std::shared_ptr<MappingEngine> mapping_engine);
+    HueStreamer(std::shared_ptr<ConfigManager> config, std::shared_ptr<DTLSClient> dtls_client, std::shared_ptr<MappingEngine> mapping_engine, LatestSlot<std::vector<Color>>* latest_slot);
     ~HueStreamer();
 
     void start();
     void stop();
-    void updateColors(const std::vector<Color>& colors);
+    void notify_new_frame();
 
 private:
     void stream_thread_func();
@@ -24,13 +26,13 @@ private:
     std::shared_ptr<ConfigManager> config_;
     std::shared_ptr<DTLSClient> dtls_client_;
     std::shared_ptr<MappingEngine> mapping_engine_;
+    LatestSlot<std::vector<Color>>* latest_slot_;
 
     std::thread stream_thread_;
     std::atomic<bool> running_{false};
 
-    // Lock-free slot for latest frame
-    std::shared_ptr<std::vector<Color>> latest_frame_{nullptr};
-    std::mutex frame_mutex_;
+    std::mutex main_mutex_;
+    std::condition_variable new_frame_cv_;
 
     uint32_t sequence_number_ = 0;
 };

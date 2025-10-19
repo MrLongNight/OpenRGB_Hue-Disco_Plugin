@@ -4,8 +4,8 @@
 #include <algorithm>
 #include <spdlog/spdlog.h>
 
-HueStreamer::HueStreamer(std::shared_ptr<ConfigManager> config, std::shared_ptr<DTLSClient> dtls_client, std::shared_ptr<MappingEngine> mapping_engine)
-    : config_(config), dtls_client_(dtls_client), mapping_engine_(mapping_engine) {}
+HueStreamer::HueStreamer(std::shared_ptr<ConfigManager> config, std::shared_ptr<DTLSClient> dtls_client, std::shared_ptr<MappingEngine> mapping_engine, LatestSlot<std::vector<Color>>* latest_slot)
+    : config_(config), dtls_client_(dtls_client), mapping_engine_(mapping_engine), latest_slot_(latest_slot) {}
 
 HueStreamer::~HueStreamer() {
     stop();
@@ -20,14 +20,14 @@ void HueStreamer::start() {
 void HueStreamer::stop() {
     if (!running_.load(std::memory_order_acquire)) return;
     running_.store(false, std::memory_order_release);
+    new_frame_cv_.notify_one(); // Wake up thread to exit
     if (stream_thread_.joinable()) {
         stream_thread_.join();
     }
 }
 
-void HueStreamer::updateColors(const std::vector<Color>& colors) {
-    std::lock_guard<std::mutex> lock(frame_mutex_);
-    latest_frame_ = std::make_shared<std::vector<Color>>(colors);
+void HueStreamer::notify_new_frame() {
+    new_frame_cv_.notify_one();
 }
 
 void HueStreamer::stream_thread_func() {
@@ -36,7 +36,7 @@ void HueStreamer::stream_thread_func() {
     auto frame_duration = std::chrono::milliseconds(1000 / target_fps);
     long backoff_ms = 500;
 
-    std::shared_ptr<std::vector<Color>> last_processed_frame = nullptr;
+    std::shared_ptr<std::vector<Color>> current_frame = nullptr;
 
     while (running_.load(std::memory_order_acquire)) {
         if (!dtls_client_->isConnected()) {
@@ -52,27 +52,22 @@ void HueStreamer::stream_thread_func() {
 
         auto loop_start = std::chrono::steady_clock::now();
 
-        std::shared_ptr<std::vector<Color>> frame_to_process;
-        {
-            std::lock_guard<std::mutex> lock(frame_mutex_);
-            if (latest_frame_ != last_processed_frame) {
-                frame_to_process = latest_frame_;
-                last_processed_frame = latest_frame_;
-            }
-        }
+        // Atomically swap the pointer to get the latest frame
+        current_frame = latest_slot_->exchange(nullptr);
 
-        if (frame_to_process) {
+        if (current_frame) {
             // Map OpenRGB colors -> Hue colors (floats 0.0-1.0)
             std::vector<MappedHueColor> mapped_colors;
-            mapping_engine_->mapOpenRGBtoHue(*frame_to_process, mapped_colors);
+            mapping_engine_->mapOpenRGBtoHue(*current_frame, mapped_colors);
 
             std::vector<DTLSHueColor> dtls_colors;
+            std::vector<std::string> lamp_ids;
             for(const auto& color : mapped_colors) {
                 dtls_colors.push_back({(uint8_t)(color.r * 255), (uint8_t)(color.g * 255), (uint8_t)(color.b * 255)});
+                lamp_ids.push_back(color.lamp_uuid);
             }
 
-            // Send via DTLS; non-blocking wrt SetLEDs (DTLS handled in streamer thread)
-            if (!dtls_client_->sendFrame(dtls_colors, ++sequence_number_)) {
+            if (!dtls_client_->sendFrame(dtls_colors, lamp_ids, ++sequence_number_)) {
                 spdlog::error("sendFrame failed, will disconnect and reconnect");
                 dtls_client_->disconnect();
             }
@@ -80,8 +75,10 @@ void HueStreamer::stream_thread_func() {
 
         auto loop_end = std::chrono::steady_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(loop_end - loop_start);
+
         if (elapsed < frame_duration) {
-            std::this_thread::sleep_for(frame_duration - elapsed);
+            std::unique_lock<std::mutex> lock(main_mutex_);
+            new_frame_cv_.wait_for(lock, frame_duration - elapsed);
         }
     }
 }

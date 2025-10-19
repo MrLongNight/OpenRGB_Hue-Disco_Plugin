@@ -19,7 +19,7 @@ public:
 
     bool connect();
     void disconnect();
-    bool sendFrame(const std::vector<DTLSHueColor>& lampColors, uint32_t sequenceNumber);
+    bool sendFrame(const std::vector<DTLSHueColor>& lampColors, const std::vector<std::string>& lampIds, uint32_t sequenceNumber);
     bool isConnected() const;
 
 private:
