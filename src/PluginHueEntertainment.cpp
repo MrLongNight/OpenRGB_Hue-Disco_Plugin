@@ -1,80 +1,32 @@
 #include "PluginHueEntertainment.h"
 #include "Logger.h"
-#include <filesystem>
 
-// This function is the entry point for the plugin
-extern "C" Plugin* create_plugin() {
-    return new PluginHueEntertainment();
+static PluginHueEntertainment* plugin_instance = nullptr;
+
+extern "C" void init_plugin(plugin_api_t* api) {
+    plugin_instance = new PluginHueEntertainment();
+    plugin_instance->delayed_init(api);
 }
 
-void PluginHueEntertainment::init() {
+extern "C" Plugin* get_plugin_instance() {
+    return plugin_instance;
+}
+
+void PluginHueEntertainment::delayed_init(plugin_api_t* api) {
+    plugin_api_ = api;
     InitializeLogger();
     spdlog::info("Initializing OpenRGB Hue Entertainment Plugin");
 
-    // Determine config path
-    std::string config_path;
-#ifdef _WIN32
-    config_path = std::string(getenv("APPDATA")) + "/openrgb-hue-entertainment/config.json";
-#else
-    config_path = std::string(getenv("HOME")) + "/.config/openrgb-hue-entertainment/config.json";
-#endif
+    config_reader_ = std::make_unique<OpenRGBConfigReader>();
+    available_bridges_ = config_reader_->get_hue_bridges();
 
-    config_manager_ = std::make_shared<ConfigManager>(config_path);
-    if (!config_manager_->load()) {
-        spdlog::error("Failed to load configuration. Plugin will not start.");
-        return;
+    if (available_bridges_.empty()) {
+        current_state_ = State::NO_BRIDGES_FOUND;
+        spdlog::warn("No Philips Hue bridges with Entertainment enabled were found in your OpenRGB config.");
+    } else {
+        current_state_ = State::SELECT_BRIDGE;
+        spdlog::info("Found {} configured Hue Entertainment bridge(s).", available_bridges_.size());
     }
-
-    // Check if we need to run pushlink
-    if (config_manager_->get_username().empty() || config_manager_->get_clientkey().empty()) {
-        spdlog::info("Username or clientkey not found. Starting pushlink registration.");
-        std::string username, clientkey;
-        HueClient client(config_manager_->get_bridge_ip(), "");
-        if (client.registerUserWithPushlink(username, clientkey)) {
-            config_manager_->set_username(username);
-            config_manager_->set_clientkey(clientkey);
-            config_manager_->save();
-        } else {
-            spdlog::error("Pushlink registration failed. Plugin will not start.");
-            return;
-        }
-    }
-
-    hue_client_ = std::make_shared<HueClient>(config_manager_->get_bridge_ip(), config_manager_->get_username());
-    
-    auto areas = hue_client_->getEntertainmentAreas();
-    if (areas.empty()) {
-        spdlog::error("No entertainment areas found. Plugin will not start.");
-        return;
-    }
-
-    // For now, just use the first area
-    auto& area = areas[0];
-    config_manager_->set_area_id(area.id);
-    
-    // Create mappings if they don't exist
-    if (config_manager_->get_mappings().empty()) {
-        std::vector<Mapping> mappings;
-        for (int i = 0; i < area.lamp_uuids.size(); ++i) {
-            mappings.push_back({{i}, area.lamp_uuids[i]});
-        }
-        config_manager_->set_mappings(mappings);
-        config_manager_->save();
-    }
-
-
-    dtls_client_ = std::make_shared<DTLSClient>(config_manager_->get_bridge_ip(), config_manager_->get_username(), config_manager_->get_clientkey(), config_manager_->get_area_id(), config_manager_->get_mappings());
-    mapping_engine_ = std::make_shared<MappingEngine>();
-    mapping_engine_->loadMapping(config_manager_->get_mappings());
-
-    hue_streamer_ = std::make_shared<HueStreamer>(config_manager_, dtls_client_, mapping_engine_);
-    
-    hue_device_ = std::make_unique<HueDevice>(hue_streamer_, area.lamp_uuids.size());
-
-    // Register device with OpenRGB
-    register_device(hue_device_.get());
-
-    hue_streamer_->start();
 }
 
 void PluginHueEntertainment::cleanup() {
@@ -82,4 +34,98 @@ void PluginHueEntertainment::cleanup() {
     if (hue_streamer_) {
         hue_streamer_->stop();
     }
+    if (hue_device_) {
+        plugin_api_->unregister_device(hue_device_.get());
+    }
+    delete plugin_instance;
+}
+
+void PluginHueEntertainment::create_widgets(int parent_widget_id) {
+    main_widget_id_ = plugin_api_->add_widget(parent_widget_id, "group_box", {{"label", "Hue Entertainment"}});
+    status_label_id_ = plugin_api_->add_widget(main_widget_id_, "label", {{"label", "Initializing..."}});
+    bridge_selection_id_ = plugin_api_->add_widget(main_widget_id_, "combo_box", {});
+    start_button_id_ = plugin_api_->add_widget(main_widget_id_, "button", {{"label", "Start Streaming"}});
+
+    update_ui();
+
+    plugin_api_->register_widget_callback(start_button_id_, [this](const std::map<std::string, p_val>&) {
+        if (current_state_ == State::READY) {
+            auto selected_text = plugin_api_->get_widget_value(bridge_selection_id_, "text").s_val;
+            for(const auto& bridge : available_bridges_) {
+                if (bridge.ip == selected_text) {
+                     start_streaming(bridge);
+                     break;
+                }
+            }
+        }
+    });
+}
+
+void PluginHueEntertainment::update_ui() {
+    switch (current_state_) {
+        case State::NO_BRIDGES_FOUND:
+            plugin_api_->set_widget_property(status_label_id_, "label", "Error: No Hue Bridges with Entertainment enabled in OpenRGB settings.\nPlease configure a Hue Bridge in the main OpenRGB settings and enable Entertainment mode for it.");
+            plugin_api_->set_widget_property(bridge_selection_id_, "visible", false);
+            plugin_api_->set_widget_property(start_button_id_, "visible", false);
+            break;
+        case State::SELECT_BRIDGE:
+            plugin_api_->set_widget_property(status_label_id_, "label", "Select a Hue Bridge to start:");
+            {
+                std::string bridge_ips_str;
+                for (const auto& bridge : available_bridges_) {
+                    bridge_ips_str += bridge.ip + ",";
+                }
+                if (!bridge_ips_str.empty()) {
+                    bridge_ips_str.pop_back(); // Remove trailing comma
+                }
+                plugin_api_->set_widget_property(bridge_selection_id_, "items", bridge_ips_str.c_str());
+            }
+            plugin_api_->set_widget_property(bridge_selection_id_, "visible", true);
+            plugin_api_->set_widget_property(start_button_id_, "visible", true);
+            current_state_ = State::READY;
+            break;
+        case State::STREAMING:
+             plugin_api_->set_widget_property(status_label_id_, "label", "Streaming active.");
+             plugin_api_->set_widget_property(bridge_selection_id_, "visible", false);
+             plugin_api_->set_widget_property(start_button_id_, "visible", false);
+            break;
+        case State::ERROR:
+             plugin_api_->set_widget_property(status_label_id_, "label", "An error occurred. Check logs.");
+             plugin_api_->set_widget_property(bridge_selection_id_, "visible", false);
+             plugin_api_->set_widget_property(start_button_id_, "visible", false);
+             break;
+
+    }
+}
+
+void PluginHueEntertainment::start_streaming(const HueBridge& bridge) {
+    spdlog::info("Starting stream for bridge: {}", bridge.ip);
+
+    hue_client_ = std::make_shared<HueClient>(bridge.ip);
+    auto areas = hue_client_->getEntertainmentAreas(bridge.username);
+    HueEntertainmentArea* selected_area = nullptr;
+    for(auto& area : areas) {
+        if(area.id == bridge.entertainment_area_id) {
+            selected_area = &area;
+            break;
+        }
+    }
+
+    if(!selected_area) {
+        spdlog::error("Could not find configured entertainment area on bridge. Aborting.");
+        current_state_ = State::ERROR;
+        update_ui();
+        return;
+    }
+
+    current_state_ = State::STREAMING;
+    update_ui();
+
+    mapping_engine_ = std::make_shared<MappingEngine>(selected_area->lamp_uuids);
+    dtls_client_ = std::make_shared<DTLSClient>(bridge.ip, bridge.username, bridge.clientkey, bridge.entertainment_area_id, std::vector<Mapping>{});
+    hue_streamer_ = std::make_shared<HueStreamer>(dtls_client_, mapping_engine_);
+    hue_device_ = std::make_unique<HueDevice>(hue_streamer_.get(), selected_area->lamp_uuids.size());
+
+    plugin_api_->register_device(hue_device_.get());
+    hue_streamer_->start();
 }

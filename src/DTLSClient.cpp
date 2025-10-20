@@ -4,19 +4,17 @@
 #include <nlohmann/json.hpp>
 #include <cstring>
 #include <algorithm>
+#include <chrono>
 
-// Helper to convert hex string to bytes
 std::vector<unsigned char> hex_to_bytes(const std::string& hex) {
     std::vector<unsigned char> bytes;
     for (unsigned int i = 0; i < hex.length(); i += 2) {
         std::string byteString = hex.substr(i, 2);
-        unsigned char byte = (unsigned char)strtol(byteString.c_str(), NULL, 16);
-        bytes.push_back(byte);
+        bytes.push_back((unsigned char)strtol(byteString.c_str(), NULL, 16));
     }
     return bytes;
 }
 
-// Helper to convert UUID string to bytes
 std::vector<unsigned char> uuid_to_bytes(std::string uuid) {
     uuid.erase(std::remove(uuid.begin(), uuid.end(), '-'), uuid.end());
     return hex_to_bytes(uuid);
@@ -50,37 +48,26 @@ DTLSClient::~DTLSClient() {
 
 bool DTLSClient::connect() {
     int ret;
-    const char* pers = "dtls_client";
-
     if ((ret = mbedtls_net_connect(&server_fd_, bridge_ip_.c_str(), "2100", MBEDTLS_NET_PROTO_UDP)) != 0) {
         spdlog::error("mbedtls_net_connect returned {}", ret);
         return false;
     }
-
     if ((ret = mbedtls_ssl_config_defaults(&conf_, MBEDTLS_SSL_IS_CLIENT, MBEDTLS_SSL_TRANSPORT_DATAGRAM, MBEDTLS_SSL_PRESET_DEFAULT)) != 0) {
         spdlog::error("mbedtls_ssl_config_defaults returned {}", ret);
         return false;
     }
-    
     mbedtls_ssl_conf_rng(&conf_, mbedtls_ctr_drbg_random, &ctr_drbg_);
-    
-    // Set PSK
     if ((ret = mbedtls_ssl_conf_psk(&conf_, psk_.data(), psk_.size(), (const unsigned char*)username_.c_str(), username_.size())) != 0) {
         spdlog::error("mbedtls_ssl_conf_psk returned {}", ret);
         return false;
     }
-    
-    // Set ciphersuite
     static const int psk_cs[] = { MBEDTLS_TLS_PSK_WITH_AES_128_GCM_SHA256, 0 };
     mbedtls_ssl_conf_ciphersuites(&conf_, psk_cs);
-
     if ((ret = mbedtls_ssl_setup(&ssl_, &conf_)) != 0) {
         spdlog::error("mbedtls_ssl_setup returned {}", ret);
         return false;
     }
-
     mbedtls_ssl_set_bio(&ssl_, &server_fd_, mbedtls_net_send, mbedtls_net_recv, NULL);
-
     spdlog::info("Performing DTLS handshake...");
     while ((ret = mbedtls_ssl_handshake(&ssl_)) != 0) {
         if (ret != MBEDTLS_ERR_SSL_WANT_READ && ret != MBEDTLS_ERR_SSL_WANT_WRITE) {
@@ -88,50 +75,39 @@ bool DTLSClient::connect() {
             return false;
         }
     }
-
     spdlog::info("DTLS handshake successful.");
+    connected_ = true;
     return true;
 }
 
 void DTLSClient::disconnect() {
     mbedtls_ssl_close_notify(&ssl_);
+    connected_ = false;
 }
 
-bool DTLSClient::sendFrame(const std::vector<HueColor>& lampColors, uint32_t sequenceNumber) {
-    std::vector<unsigned char> payload;
-    payload.reserve(16 + 16 + (lampColors.size() * 7));
+bool DTLSClient::isConnected() const {
+    return connected_;
+}
 
-    // Header
-    const char* protocolName = "HueStream";
-    payload.insert(payload.end(), protocolName, protocolName + 9);
-    payload.push_back(0x02); // Major version
-    payload.push_back(0x00); // Minor version
-    payload.push_back((sequenceNumber >> 24) & 0xFF);
-    payload.push_back((sequenceNumber >> 16) & 0xFF);
-    payload.push_back((sequenceNumber >> 8) & 0xFF);
-    payload.push_back(sequenceNumber & 0xFF);
-    payload.push_back(0x00); // Reserved
-    payload.push_back(0x00); // Reserved
-    payload.push_back(0x00); // Color space (RGB)
-    payload.push_back(0x00); // Reserved
+bool DTLSClient::sendFrame(const std::vector<DTLSHueColor>& lampColors, const std::vector<std::string>& lampIds, uint32_t sequenceNumber) {
+    nlohmann::json root;
+    root["sequence"] = sequenceNumber;
+    root["timestamp"] = (uint64_t)std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
 
-    // Entertainment Area ID
-    auto area_id_bytes = uuid_to_bytes(area_id_);
-    payload.insert(payload.end(), area_id_bytes.begin(), area_id_bytes.end());
-
-    // Light Channels
+    nlohmann::json frames = nlohmann::json::array();
     for (size_t i = 0; i < lampColors.size(); ++i) {
-        payload.push_back(i); // Channel ID
-        // Convert to 16-bit big endian
-        payload.push_back(lampColors[i].r);
-        payload.push_back(lampColors[i].r);
-        payload.push_back(lampColors[i].g);
-        payload.push_back(lampColors[i].g);
-        payload.push_back(lampColors[i].b);
-        payload.push_back(lampColors[i].b);
+        frames.push_back({
+            {"lampId", lampIds[i]},
+            {"r", std::round(lampColors[i].r / 255.0f * 1000.0f) / 1000.0f},
+            {"g", std::round(lampColors[i].g / 255.0f * 1000.0f) / 1000.0f},
+            {"b", std::round(lampColors[i].b / 255.0f * 1000.0f) / 1000.0f},
+        });
     }
+    root["frames"] = frames;
+    std::string payload = root.dump();
 
-    int ret = mbedtls_ssl_write(&ssl_, payload.data(), payload.size());
+    int ret = mbedtls_ssl_write(&ssl_, (const unsigned char*)payload.data(), payload.size());
     if (ret < 0) {
         spdlog::error("mbedtls_ssl_write returned {}", ret);
         return false;

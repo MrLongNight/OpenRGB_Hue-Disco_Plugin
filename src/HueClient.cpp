@@ -1,53 +1,20 @@
 #include "HueClient.h"
 #include "Logger.h"
-#include <thread>
-#include <chrono>
 
-HueClient::HueClient(const std::string& bridge_ip, const std::string& username) : bridge_ip_(bridge_ip), http_client_(bridge_ip_.c_str()) {
-    http_client_.set_default_headers({
-        {"hue-application-key", username}
-    });
-}
-
-bool HueClient::discoverBridge(std::string& ip) {
-    // Placeholder for mDNS or other discovery logic
-    spdlog::warn("Bridge discovery not implemented. Using configured IP.");
-    return false;
-}
-
-bool HueClient::registerUserWithPushlink(std::string& username, std::string& clientkey) {
-    json body = {
-        {"devicetype", "openrgb_hue_entertainment#plugin"},
-        {"generateclientkey", true}
-    };
-    
-    for (int i = 0; i < 30; ++i) {
-        auto res = http_client_.Post("/api", body.dump(), "application/json");
-        if (res && res->status == 200) {
-            try {
-                json response = json::parse(res->body);
-                if (response[0].contains("success")) {
-                    username = response[0]["success"]["username"];
-                    clientkey = response[0]["success"]["clientkey"];
-                    spdlog::info("Successfully registered with Hue Bridge. Username: {}", username);
-                    return true;
-                }
-            } catch (const std::exception& e) {
-                spdlog::error("Failed to parse pushlink response: {}", e.what());
-                return false;
-            }
-        }
-        spdlog::info("Press the button on the Hue Bridge...");
-        std::this_thread::sleep_for(std::chrono::seconds(1));
+HueClient::HueClient(const std::string& bridge_ip) {
+    if (!bridge_ip.empty()) {
+        http_client_ = std::make_unique<httplib::Client>(bridge_ip.c_str());
+        http_client_->set_connection_timeout(5);
+        http_client_->set_read_timeout(5);
     }
-    
-    spdlog::error("Pushlink registration timed out.");
-    return false;
 }
 
-std::vector<HueEntertainmentArea> HueClient::getEntertainmentAreas() {
+std::vector<HueEntertainmentArea> HueClient::getEntertainmentAreas(const std::string& username) {
+    if (!http_client_) return {};
     std::vector<HueEntertainmentArea> areas;
-    auto res = http_client_.Get("/clip/v2/resource/entertainment_configuration");
+    httplib::Headers headers = { {"hue-application-key", username} };
+
+    auto res = http_client_->Get("/clip/v2/resource/entertainment_configuration", headers);
     if (res && res->status == 200) {
         try {
             json response = json::parse(res->body);
@@ -55,11 +22,7 @@ std::vector<HueEntertainmentArea> HueClient::getEntertainmentAreas() {
                 HueEntertainmentArea area;
                 area.id = area_data["id"];
                 area.name = area_data["metadata"]["name"];
-                
                 for(const auto& service : area_data["channels"]) {
-                    // In v2, the locations are a bit more complex. 
-                    // This is a simplified representation.
-                    // You might need to make another request to resolve the lamp details.
                     area.lamp_uuids.push_back(service["service"]["rid"]);
                 }
                 areas.push_back(area);
@@ -73,9 +36,11 @@ std::vector<HueEntertainmentArea> HueClient::getEntertainmentAreas() {
     return areas;
 }
 
-bool HueClient::activateEntertainmentArea(const std::string& areaId) {
+bool HueClient::activateEntertainmentArea(const std::string& username, const std::string& areaId) {
+    if (!http_client_) return false;
     json body = {{"action", "start"}};
-    auto res = http_client_.Put(("/clip/v2/resource/entertainment_configuration/" + areaId).c_str(), body.dump(), "application/json");
+    httplib::Headers headers = { {"hue-application-key", username} };
+    auto res = http_client_->Put(("/clip/v2/resource/entertainment_configuration/" + areaId).c_str(), headers, body.dump(), "application/json");
     if (res && res->status == 200) {
         spdlog::info("Entertainment area {} activated.", areaId);
         return true;
@@ -84,9 +49,11 @@ bool HueClient::activateEntertainmentArea(const std::string& areaId) {
     return false;
 }
 
-bool HueClient::deactivateEntertainmentArea(const std::string& areaId) {
+bool HueClient::deactivateEntertainmentArea(const std::string& username, const std::string& areaId) {
+    if (!http_client_) return false;
     json body = {{"action", "stop"}};
-    auto res = http_client_.Put(("/clip/v2/resource/entertainment_configuration/" + areaId).c_str(), body.dump(), "application/json");
+    httplib::Headers headers = { {"hue-application-key", username} };
+    auto res = http_client_->Put(("/clip/v2/resource/entertainment_configuration/" + areaId).c_str(), headers, body.dump(), "application/json");
     if (res && res->status == 200) {
         spdlog::info("Entertainment area {} deactivated.", areaId);
         return true;

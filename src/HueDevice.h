@@ -1,15 +1,18 @@
 #pragma once
 
 #include "OpenRGB/Device.h"
-#include "HueStreamer.h"
+#include "LatestFrame.h"
 #include <memory>
+#include <vector>
+
+class HueStreamer; // Forward declaration
 
 class HueDevice : public Device {
 public:
-    HueDevice(std::shared_ptr<HueStreamer> streamer, int num_leds);
+    HueDevice(HueStreamer* streamer, int num_leds);
     
     void SetLEDs(const std::vector<Color>& colors) override;
-    
+
 private:
-    std::shared_ptr<HueStreamer> streamer_;
+    HueStreamer* streamer_;
 };

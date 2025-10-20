@@ -6,8 +6,17 @@ This plugin for OpenRGB allows you to synchronize your OpenRGB-controlled device
 
 -   **Direct Hue Entertainment API v2 Integration:** Low-latency, high-performance streaming directly to your Hue Bridge.
 -   **Cross-Platform:** Works on both Linux and Windows.
--   **Flexible LED Mapping:** Map individual OpenRGB LEDs or zones to your Hue lights.
--   **Secure:** Uses a DTLS-PSK secured connection to the Hue Bridge.
+-   **Seamless Integration:** Uses the main OpenRGB configuration file for Hue Bridge details.
+
+## Dependencies
+
+The plugin uses `CMake` with `FetchContent` to download and build its dependencies automatically. For this to work, you need the necessary development libraries installed on your system.
+
+-   **mbedtls**
+-   **nlohmann_json**
+-   **spdlog**
+-   **cpp-httplib** (with OpenSSL support)
+-   **Catch2** (*For tests only*)
 
 ## Build Instructions
 
@@ -15,7 +24,8 @@ This plugin for OpenRGB allows you to synchronize your OpenRGB-controlled device
 
 1.  **Install Dependencies:**
     ```bash
-    sudo apt-get install build-essential cmake
+    # Debian / Ubuntu
+    sudo apt-get install build-essential cmake libssl-dev
     ```
 2.  **Build the Plugin:**
     ```bash
@@ -28,45 +38,39 @@ This plugin for OpenRGB allows you to synchronize your OpenRGB-controlled device
 ### Windows
 
 1.  **Install Dependencies:**
-    -   Install [Visual Studio](https://visualstudio.microsoft.com/) with the "Desktop development with C++" workload.
-    -   Install [CMake](https://cmake.org/download/).
+    -   Install a C++ compiler (e.g., Visual Studio, MinGW).
+    -   Install CMake.
+    -   Install OpenSSL.
 2.  **Build the Plugin:**
-    -   Open a developer command prompt.
-    -   Navigate to the project directory.
-    -   Run cmake:
-        ```bash
-        mkdir build
-        cd build
-        cmake ..
-        cmake --build . --config Release
-        ```
+    ```bash
+    mkdir build
+    cd build
+    cmake ..
+    cmake --build . --config Release
+    ```
 
 ## Installation
 
 1.  Copy the built plugin (`libOpenRGB_HueEntertainment.so` on Linux, `OpenRGB_HueEntertainment.dll` on Windows) to the `plugins` directory of your OpenRGB installation.
 2.  Start OpenRGB.
 
-## Configuration and Push-Link Authentication
+## Configuration
 
-1.  The first time you run the plugin, it will attempt to register with your Hue Bridge.
-2.  You will be prompted in the OpenRGB log to press the button on your Hue Bridge.
-3.  Once you press the button, the plugin will save your credentials to a configuration file:
-    -   **Linux:** `~/.config/openrgb-hue-entertainment/config.json`
-    -   **Windows:** `%APDATA%/openrgb-hue-entertainment/config.json`
-4.  You can then edit this file to configure your entertainment area and LED mappings.
+This plugin does not have its own configuration file. Instead, it reads the main OpenRGB configuration file to find your Hue Bridge.
+
+1.  **Configure the Hue Bridge in OpenRGB:**
+    -   Go to the "Settings" tab in OpenRGB.
+    -   Go to the "Devices" tab.
+    -   Select the "Philips Hue" detector and configure your bridge.
+2.  **Enable Entertainment Mode:**
+    -   In the Hue Bridge settings within OpenRGB, make sure to select an Entertainment Area and check the "Enable Entertainment Mode" box.
+3.  **Use the Plugin:**
+    -   Go to the "Plugins" tab.
+    -   Select the "Hue Entertainment" plugin.
+    -   If you have multiple Hue Bridges configured for entertainment, select the one you want to use from the dropdown menu.
+    -   Click "Start Streaming".
 
 ## Troubleshooting
 
--   **Firewall:** Ensure that UDP port 2100 is not blocked on your firewall.
--   **MTU:** If you experience packet loss, you may need to adjust the MTU size on your network interface.
+-   **Firewall:** Ensure that outgoing UDP traffic to your Hue Bridge (port 2100) is not blocked.
 -   **Logs:** Check the OpenRGB logs for detailed information about the plugin's status and any errors.
-
-## Example Log Output
-
-```
-[info] Initializing OpenRGB Hue Entertainment Plugin
-[info] Press the button on the Hue Bridge...
-[info] Successfully registered with Hue Bridge. Username: your-username
-[info] DTLS handshake successful.
-[info] Starting stream.
-```
