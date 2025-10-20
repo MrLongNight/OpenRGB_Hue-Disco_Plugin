@@ -1,0 +1,13 @@
+{
+  "name": "openrgb-hue-entertainment-plugin",
+  "version-string": "0.1.0",
+  "dependencies": [
+    "mbedtls",
+    "nlohmann-json",
+    "spdlog",
+    {
+      "name": "cpp-httplib",
+      "features": [ "openssl" ]
+    }
+  ]
+}

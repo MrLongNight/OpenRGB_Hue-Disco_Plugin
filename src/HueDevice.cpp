@@ -1,12 +1,13 @@
 #include "HueDevice.h"
 
-HueDevice::HueDevice(std::shared_ptr<HueStreamer> streamer, int num_leds)
-    : streamer_(streamer) {
+HueDevice::HueDevice(int num_leds) {
     // Initialize device properties based on OpenRGB API
     // this->name = "Hue Entertainment Area";
     // this->leds.resize(num_leds);
 }
 
 void HueDevice::SetLEDs(const std::vector<Color>& colors) {
-    streamer_->updateColors(colors);
+    // Non-blocking: quickly copy colors to a shared_ptr and publish
+    auto buf = std::make_shared<std::vector<Color>>(colors);
+    latest_slot_.store(buf);
 }
