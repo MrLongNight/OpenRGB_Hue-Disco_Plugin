@@ -25,6 +25,19 @@ void PluginHueEntertainment::init() {
         return;
     }
 
+    std::string bridge_ip = config_manager_->get_bridge_ip();
+    if (bridge_ip.empty()) {
+        HueClient client("", "");
+        client.discoverBridge(bridge_ip);
+        if (!bridge_ip.empty()) {
+            config_manager_->set_bridge_ip(bridge_ip);
+            config_manager_->save();
+        } else {
+            spdlog::error("Could not discover Hue Bridge. Please set bridge_ip in the config file.");
+            return;
+        }
+    }
+
     // Check if we need to run pushlink
     if (config_manager_->get_username().empty() || config_manager_->get_clientkey().empty()) {
         spdlog::info("Username or clientkey not found. Starting pushlink registration.");
@@ -64,12 +77,11 @@ void PluginHueEntertainment::init() {
 
 
     dtls_client_ = std::make_shared<DTLSClient>(config_manager_->get_bridge_ip(), config_manager_->get_username(), config_manager_->get_clientkey(), config_manager_->get_area_id(), config_manager_->get_mappings());
-    mapping_engine_ = std::make_shared<MappingEngine>();
-    mapping_engine_->loadMapping(config_manager_->get_mappings());
-
-    hue_streamer_ = std::make_shared<HueStreamer>(config_manager_, dtls_client_, mapping_engine_);
+    mapping_engine_ = std::make_shared<MappingEngine>(area.lamp_uuids);
     
-    hue_device_ = std::make_unique<HueDevice>(hue_streamer_, area.lamp_uuids.size());
+    hue_device_ = std::make_unique<HueDevice>(area.lamp_uuids.size());
+
+    hue_streamer_ = std::make_shared<HueStreamer>(config_manager_, dtls_client_, mapping_engine_, &hue_device_->latest_slot_);
 
     // Register device with OpenRGB
     register_device(hue_device_.get());
