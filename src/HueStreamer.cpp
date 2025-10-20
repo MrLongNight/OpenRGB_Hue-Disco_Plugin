@@ -28,6 +28,10 @@ void HueStreamer::stop() {
     }
 }
 
+void HueStreamer::notify_new_frame() {
+    new_frame_cv_.notify_one();
+}
+
 void HueStreamer::stream_thread_func() {
     int target_fps = 30;
     auto frame_duration = std::chrono::milliseconds(1000 / target_fps);
@@ -78,7 +82,8 @@ void HueStreamer::stream_thread_func() {
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(loop_end - loop_start);
 
         if (elapsed < frame_duration) {
-             std::this_thread::sleep_for(frame_duration - elapsed);
+             std::unique_lock<std::mutex> lock(main_mutex_);
+             new_frame_cv_.wait_for(lock, frame_duration - elapsed);
         }
     }
 }

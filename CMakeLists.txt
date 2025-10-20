@@ -9,6 +9,7 @@ enable_testing()
 
 include(FetchContent)
 
+# mbedTLS
 FetchContent_Declare(
   mbedtls
   GIT_REPOSITORY https://github.com/Mbed-TLS/mbedtls.git
@@ -16,6 +17,7 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(mbedtls)
 
+# nlohmann_json
 FetchContent_Declare(
   nlohmann_json
   GIT_REPOSITORY https://github.com/nlohmann/json.git
@@ -23,6 +25,7 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(nlohmann_json)
 
+# spdlog
 FetchContent_Declare(
   spdlog
   GIT_REPOSITORY https://github.com/gabime/spdlog.git
@@ -30,6 +33,7 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(spdlog)
 
+# cpp-httplib
 FetchContent_Declare(
   httplib
   GIT_REPOSITORY https://github.com/yhirose/cpp-httplib.git
@@ -37,6 +41,7 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(httplib)
 
+# Catch2
 FetchContent_Declare(
   Catch2
   GIT_REPOSITORY https://github.com/catchorg/Catch2.git
@@ -44,8 +49,10 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(Catch2)
 
+# Add subdirectories
 add_subdirectory(src)
 add_subdirectory(tests)
 
+# Install configuration
 set(OPENRGB_PLUGIN_INSTALL_DIR "${CMAKE_INSTALL_PREFIX}/plugins" CACHE PATH "Directory to install OpenRGB plugins")
 install(TARGETS OpenRGB_HueEntertainment DESTINATION ${OPENRGB_PLUGIN_INSTALL_DIR})

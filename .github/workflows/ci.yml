@@ -1,0 +1,52 @@
+name: CI & Release
+
+on:
+  push:
+    branches: [ main ]
+    tags:
+      - 'v*.*.*'
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Install vcpkg dependencies
+      uses: lukka/run-vcpkg@v10
+      with:
+        vcpkgDirectory: ${{ github.workspace }}/vcpkg
+        vcpkgGitCommitId: '9d28c3e68f3f615550a6b7e285f1c6b1b60627e7'
+        vcpkgJsonGlob: '**/vcpkg.json'
+
+    - name: Configure CMake
+      run: >
+        cmake -B ${{ github.workspace }}/build
+        -S ${{ github.workspace }}
+        -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
+
+    - name: Build
+      run: cmake --build ${{ github.workspace }}/build --config Release
+
+    - name: Upload Artifact for PR
+      if: github.event_name == 'pull_request'
+      uses: actions/upload-artifact@v3
+      with:
+        name: OpenRGB_HueEntertainment.dll
+        path: ${{ github.workspace }}/build/src/Release/OpenRGB_HueEntertainment.dll
+
+    - name: Package Release
+      if: startsWith(github.ref, 'refs/tags/')
+      run: |
+        Compress-Archive -Path ${{ github.workspace }}/build/src/Release/OpenRGB_HueEntertainment.dll -DestinationPath OpenRGB_HueEntertainment_Windows_x64.zip
+      shell: pwsh
+
+    - name: Release
+      uses: softprops/action-gh-release@v1
+      if: startsWith(github.ref, 'refs/tags/')
+      with:
+        files: OpenRGB_HueEntertainment_Windows_x64.zip
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

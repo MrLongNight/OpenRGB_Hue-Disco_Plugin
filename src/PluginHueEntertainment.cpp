@@ -122,7 +122,7 @@ void PluginHueEntertainment::start_streaming(const HueBridge& bridge) {
     update_ui();
 
     mapping_engine_ = std::make_shared<MappingEngine>(selected_area->lamp_uuids);
-    dtls_client_ = std::make_shared<DTLSClient>(bridge.ip, bridge.username, bridge.clientkey, bridge.entertainment_area_id, std::vector<Mapping>{});
+    dtls_client_ = std::make_shared<DTLSClient>(bridge.ip, bridge.username, bridge.clientkey, bridge.entertainment_area_id);
     hue_streamer_ = std::make_shared<HueStreamer>(dtls_client_, mapping_engine_);
     hue_device_ = std::make_unique<HueDevice>(hue_streamer_.get(), selected_area->lamp_uuids.size());
 

@@ -5,8 +5,8 @@ add_library(OpenRGB_HueEntertainment SHARED
     DTLSClient.cpp
     MappingEngine.cpp
     HueStreamer.cpp
-    Logger.cpp
     OpenRGBConfigReader.cpp
+    Logger.cpp
     plugin_mock.cpp
 )
 

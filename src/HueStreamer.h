@@ -17,6 +17,7 @@ public:
 
     void start();
     void stop();
+    void notify_new_frame();
 
     LatestSlot<std::vector<Color>>* get_latest_slot() { return latest_slot_.get(); }
 
