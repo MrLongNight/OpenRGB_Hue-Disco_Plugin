@@ -20,14 +20,10 @@ void HueStreamer::start() {
 void HueStreamer::stop() {
     if (!running_.load(std::memory_order_acquire)) return;
     running_.store(false, std::memory_order_release);
-    new_frame_cv_.notify_one(); // Wake up thread to exit
+    new_frame_cv_.notify_one();
     if (stream_thread_.joinable()) {
         stream_thread_.join();
     }
-}
-
-void HueStreamer::notify_new_frame() {
-    new_frame_cv_.notify_one();
 }
 
 void HueStreamer::stream_thread_func() {
@@ -37,6 +33,7 @@ void HueStreamer::stream_thread_func() {
     long backoff_ms = 500;
 
     std::shared_ptr<std::vector<Color>> current_frame = nullptr;
+    std::shared_ptr<std::vector<Color>> last_processed_frame = nullptr;
 
     while (running_.load(std::memory_order_acquire)) {
         if (!dtls_client_->isConnected()) {
@@ -52,18 +49,20 @@ void HueStreamer::stream_thread_func() {
 
         auto loop_start = std::chrono::steady_clock::now();
 
-        // Atomically swap the pointer to get the latest frame
         current_frame = latest_slot_->exchange(nullptr);
 
+        if (!current_frame) {
+             current_frame = last_processed_frame;
+        }
+
         if (current_frame) {
-            // Map OpenRGB colors -> Hue colors (floats 0.0-1.0)
             std::vector<MappedHueColor> mapped_colors;
             mapping_engine_->mapOpenRGBtoHue(*current_frame, mapped_colors);
 
             std::vector<DTLSHueColor> dtls_colors;
             std::vector<std::string> lamp_ids;
             for(const auto& color : mapped_colors) {
-                dtls_colors.push_back({(uint8_t)(color.r * 255), (uint8_t)(color.g * 255), (uint8_t)(color.b * 255)});
+                dtls_colors.push_back({(uint8_t)(color.r * 255.0f), (uint8_t)(color.g * 255.0f), (uint8_t)(color.b * 255.0f)});
                 lamp_ids.push_back(color.lamp_uuid);
             }
 
@@ -71,14 +70,14 @@ void HueStreamer::stream_thread_func() {
                 spdlog::error("sendFrame failed, will disconnect and reconnect");
                 dtls_client_->disconnect();
             }
+            last_processed_frame = current_frame;
         }
 
         auto loop_end = std::chrono::steady_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(loop_end - loop_start);
 
         if (elapsed < frame_duration) {
-            std::unique_lock<std::mutex> lock(main_mutex_);
-            new_frame_cv_.wait_for(lock, frame_duration - elapsed);
+             std::this_thread::sleep_for(frame_duration - elapsed);
         }
     }
 }

@@ -4,19 +4,17 @@
 #include <nlohmann/json.hpp>
 #include <cstring>
 #include <algorithm>
+#include <chrono>
 
-// Helper to convert hex string to bytes
 std::vector<unsigned char> hex_to_bytes(const std::string& hex) {
     std::vector<unsigned char> bytes;
     for (unsigned int i = 0; i < hex.length(); i += 2) {
         std::string byteString = hex.substr(i, 2);
-        unsigned char byte = (unsigned char)strtol(byteString.c_str(), NULL, 16);
-        bytes.push_back(byte);
+        bytes.push_back((unsigned char)strtol(byteString.c_str(), NULL, 16));
     }
     return bytes;
 }
 
-// Helper to convert UUID string to bytes
 std::vector<unsigned char> uuid_to_bytes(std::string uuid) {
     uuid.erase(std::remove(uuid.begin(), uuid.end(), '-'), uuid.end());
     return hex_to_bytes(uuid);
@@ -50,37 +48,26 @@ DTLSClient::~DTLSClient() {
 
 bool DTLSClient::connect() {
     int ret;
-    const char* pers = "dtls_client";
-
     if ((ret = mbedtls_net_connect(&server_fd_, bridge_ip_.c_str(), "2100", MBEDTLS_NET_PROTO_UDP)) != 0) {
         spdlog::error("mbedtls_net_connect returned {}", ret);
         return false;
     }
-
     if ((ret = mbedtls_ssl_config_defaults(&conf_, MBEDTLS_SSL_IS_CLIENT, MBEDTLS_SSL_TRANSPORT_DATAGRAM, MBEDTLS_SSL_PRESET_DEFAULT)) != 0) {
         spdlog::error("mbedtls_ssl_config_defaults returned {}", ret);
         return false;
     }
-    
     mbedtls_ssl_conf_rng(&conf_, mbedtls_ctr_drbg_random, &ctr_drbg_);
-    
-    // Set PSK
     if ((ret = mbedtls_ssl_conf_psk(&conf_, psk_.data(), psk_.size(), (const unsigned char*)username_.c_str(), username_.size())) != 0) {
         spdlog::error("mbedtls_ssl_conf_psk returned {}", ret);
         return false;
     }
-    
-    // Set ciphersuite
     static const int psk_cs[] = { MBEDTLS_TLS_PSK_WITH_AES_128_GCM_SHA256, 0 };
     mbedtls_ssl_conf_ciphersuites(&conf_, psk_cs);
-
     if ((ret = mbedtls_ssl_setup(&ssl_, &conf_)) != 0) {
         spdlog::error("mbedtls_ssl_setup returned {}", ret);
         return false;
     }
-
     mbedtls_ssl_set_bio(&ssl_, &server_fd_, mbedtls_net_send, mbedtls_net_recv, NULL);
-
     spdlog::info("Performing DTLS handshake...");
     while ((ret = mbedtls_ssl_handshake(&ssl_)) != 0) {
         if (ret != MBEDTLS_ERR_SSL_WANT_READ && ret != MBEDTLS_ERR_SSL_WANT_WRITE) {
@@ -88,7 +75,6 @@ bool DTLSClient::connect() {
             return false;
         }
     }
-
     spdlog::info("DTLS handshake successful.");
     connected_ = true;
     return true;
@@ -102,8 +88,6 @@ void DTLSClient::disconnect() {
 bool DTLSClient::isConnected() const {
     return connected_;
 }
-
-#include <chrono>
 
 bool DTLSClient::sendFrame(const std::vector<DTLSHueColor>& lampColors, const std::vector<std::string>& lampIds, uint32_t sequenceNumber) {
     nlohmann::json root;

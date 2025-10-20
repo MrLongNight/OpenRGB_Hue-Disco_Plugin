@@ -2,9 +2,9 @@
 
 #include <string>
 #include <vector>
+#include <memory>
 #include <nlohmann/json.hpp>
 
-// Enable SSL support for httplib
 #if !defined(CPPHTTPLIB_OPENSSL_SUPPORT)
 #define CPPHTTPLIB_OPENSSL_SUPPORT
 #endif
@@ -27,8 +27,6 @@ public:
     std::vector<HueEntertainmentArea> getEntertainmentAreas();
     bool activateEntertainmentArea(const std::string& areaId);
     bool deactivateEntertainmentArea(const std::string& areaId);
-
-#include <memory>
 
 private:
     std::string bridge_ip_;

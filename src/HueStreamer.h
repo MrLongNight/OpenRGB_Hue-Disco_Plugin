@@ -3,13 +3,13 @@
 #include "DTLSClient.h"
 #include "MappingEngine.h"
 #include "ConfigManager.h"
+#include "LatestFrame.h"
 #include <vector>
 #include <thread>
 #include <atomic>
 #include <memory>
 #include <mutex>
 #include <condition_variable>
-#include "LatestFrame.h"
 
 class HueStreamer {
 public:
@@ -18,7 +18,6 @@ public:
 
     void start();
     void stop();
-    void notify_new_frame();
 
 private:
     void stream_thread_func();

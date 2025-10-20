@@ -4,14 +4,13 @@
 #include <chrono>
 
 HueClient::HueClient(const std::string& bridge_ip, const std::string& username) : bridge_ip_(bridge_ip) {
-    // Defer client creation until we have an IP
     if (!bridge_ip_.empty()) {
         http_client_ = std::make_unique<httplib::Client>(bridge_ip_.c_str());
         http_client_->set_default_headers({
             {"hue-application-key", username}
         });
-        http_client_->set_connection_timeout(5); // 5 seconds
-        http_client_->set_read_timeout(5);       // 5 seconds
+        http_client_->set_connection_timeout(5);
+        http_client_->set_read_timeout(5);
     }
 }
 
@@ -26,8 +25,7 @@ bool HueClient::discoverBridge(std::string& ip) {
             json response = json::parse(res->body);
             if (!response.empty()) {
                 ip = response[0]["internalipaddress"];
-                bridge_ip_ = ip; // Update internal IP
-                // Re-create the client with the new IP
+                bridge_ip_ = ip;
                 http_client_ = std::make_unique<httplib::Client>(bridge_ip_.c_str());
                 spdlog::info("Discovered Hue Bridge at IP: {}", ip);
                 return true;
@@ -62,7 +60,6 @@ bool HueClient::registerUserWithPushlink(std::string& username, std::string& cli
                     username = response[0]["success"]["username"];
                     clientkey = response[0]["success"]["clientkey"];
                     spdlog::info("Successfully registered with Hue Bridge. Username: {}", username);
-                    // Update headers with the new username (application key)
                     http_client_->set_default_headers({
                         {"hue-application-key", username}
                     });
@@ -92,7 +89,6 @@ std::vector<HueEntertainmentArea> HueClient::getEntertainmentAreas() {
                 HueEntertainmentArea area;
                 area.id = area_data["id"];
                 area.name = area_data["metadata"]["name"];
-                
                 for(const auto& service : area_data["channels"]) {
                     area.lamp_uuids.push_back(service["service"]["rid"]);
                 }
